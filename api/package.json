@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@slack/bolt": "^3.13.0",
+    "redis": "^4.6.5"
+  }
+}
