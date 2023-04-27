@@ -281,7 +281,7 @@ async function DealerTurn() {
       if (bets[i].tempValue <= 21 && total < bets[i].tempValue) {
 
         // dealer loses by value
-        if (bets[i]tempValuje === 21 && bets[i].cards.length === 2) {
+        if (bets[i]tempValue === 21 && bets[i].cards.length === 2) {
           // payout blackjack 
           const winnings = amt * 3
           await SendChannelBlock(`${name} got BLACKJACK and WON ${winnings} dollars.`)
