@@ -18,7 +18,6 @@ const app = new App({
 })
 
 app.message(/^(hello|hey|sup|howdy|yo|yoyo|yoyoyo).*/, async ({message, say}) => {
-  console.log(message)
   if (message.type === 'message') {
     if (!quiet) {
       /*
@@ -42,7 +41,7 @@ app.message(/^(hello|hey|sup|howdy|yo|yoyo|yoyoyo).*/, async ({message, say}) =>
       });
     }
     */
-      await say(`Hello, <@${message.user}>`)
+      await say(`Hello, ${message.user}`)
     }
   }
 })
@@ -166,11 +165,7 @@ async function DealNew() {
     const {tempValue, totalDisplay} = SetValues(i)
     await SendChannelBlock(`${bets[i].name} got dealt: ${card1.face} ${card2.face}`)
     if (tempValue === 21) {
-      const key = bets[i].uid
-      const winnings = bets[i].amt * 2
-      await redisClient.INCRBY(key, winnings)
-      await redisClient.DECRBY('dealer', winnings)
-      await SendChannelBlock(`BLACKJACK! WOOHOO! ${bets[i].name} won ${winnings}.`)
+      await SendChannelBlock(`BLACKJACK! WOOHOO!`)
     }
     i++
   }
@@ -255,16 +250,23 @@ async function DealerTurn() {
     let i = 0
     await SendChannelBlock(`Dealer BUSTS`)
     while (i < bets.length) {
-      const amt = bets[i].amt
-      if (!(bets[i].cards.length === 2) || !(bets[i].tempValue === 21)) {
-        if (bets[i].tempValue <= 21) {
+      if (bets[i].tempValue <= 21) {
+        if ((bets[i].cards.length === 2) && (bets[i].tempValue === 21)) {
+          const key = bets[i].uid
+          const winnings = bets[i].amt * 2 + bets[i].amt
+          await SendChannelBlock(`${name} got BLACKJACK and WON ${winnings} dollars.`)
+          await redisClient.INCRBY(key, winnings)
+          await redisClient.DECRBY('dealer', winnings)
+        } else {
+          const amt = bets[i].amt
           const key = bets[i].uid
           const name = bets[i].name
           await SendChannelBlock(`${name} WON ${amt} dollars.`)
           await redisClient.INCRBY(key, amt * 2)
-        } else {
-          redisClient.INCRBY('dealer', amt)
         }
+      } else {
+        const amt = bets[i].amt
+        redisClient.INCRBY('dealer', amt)
       }
       i++
     }
@@ -409,17 +411,17 @@ app.message('bet', async({message, say}) => {
                 timer = setTimeout(tick, 1000)
               }
             } else {
-              await say("too many bets <@" + message.user + ">")
+              await say("too many bets " + message.user + ".")
             }
           } else {
-            await say('<@${message.user}> Sorry, insufficent funds')
+            await say('${message.user} Sorry, insufficent funds')
           }
         } catch (e) {
           console.log(e)
         }
       }
     } else {
-      await say(`<@${message.user}> bets are closed.`)
+      await say(`${message.user} bets are closed.`)
     }
   }
 })
