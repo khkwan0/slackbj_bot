@@ -56,8 +56,15 @@ let timeRemaining = maxTimeRemaining
 let countdown = false
 let inGame = false
 const numDecks = 1
+const maxPlayers = 7
+const reservedChannel='C054X464D4J'
+let currentPlayerIdx = -1
 
-async function SendChannelBlock(text) {
+async function GetUser(id) {
+  return await app.client.users.profile.get({token: process.env.SLACK_USER_TOKEN, user: id})
+}
+
+async function SendChannelBlock(text, channel='C054X464D4J') {
   const block = [
     {
       "type": "header",
@@ -67,10 +74,10 @@ async function SendChannelBlock(text) {
       }
     }
   ]
-  await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: 'C054X464D4J', blocks: block})
+  await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: channel, blocks: block, text: text})
 }
-async function SendChannel(text) {
-  await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: 'C054X464D4J', text: text})
+async function SendChannel(text, channel='C054X464D4J') {
+  await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: channel, text: text})
 }
 
 function GetSuit(cardNumber) {
@@ -96,14 +103,12 @@ function GetCard() {
   let value = 0
 
   rawCard = GetRawCard()
-  console.log('raw', rawCard)
   while (dealt.includes(rawCard)) {
     console.log('redraw')
     rawCard = GetRawCard()
   }
   dealt.push(rawCard)
   const cardNumber = rawCard % 52 % 13
-  console.log('number', cardNumber)
 
   if (cardNumber < 9) {
     face = (cardNumber + 2).toString()
@@ -130,21 +135,60 @@ function GetRawCard() {
   return Math.floor(Math.random() * 52 * numDecks)
 }
 
-let currentPlayerIdx = -1
+function SetValues(playerIdx) {
+  const total = GetCardTotals(bets[playerIdx].cards)
+  let totalDisplay = 0
+  let tempValue = 0
+  if (total.total1 === 21 || total.total2 === 21) {
+    tempValue = 21
+    totalDisplay = 21
+  } else if (total.total1 === total.total2) {
+    totalDisplay = total.total1
+    tempValue = total.total1
+  } else if (total.total1 > 21 || total.total2 > 21) {
+    totalDisplay = total.total1 < total.total2 ? total.total1 : total.total2
+    tempValue = totalDisplay
+  } else if (total.total2 < 21 && total.total2 < 21) {
+    totalDisplay = total.total1 + ' or ' + total.total2
+    tempValue = total.total1 > total.total2 ? total.total1 : total.total2
+  }
+  bets[playerIdx].tempValue = tempValue
+  return {tempValue, totalDisplay}
+}
+
 async function DealNew() {
   let i = 0
   while (i < bets.length) {
     const card1 = GetCard()
     const card2 = GetCard()
     bets[i].cards = [card1, card2]
-    await SendChannel(`<@${bets[i].uid}> got dealt: ${card1.face} ${card2.face}`)
+    const total = GetCardTotals(bets[i].cards)
+    const {tempValue, totalDisplay} = SetValues(i)
+    await SendChannelBlock(`${bets[i].name} got dealt: ${card1.face} ${card2.face}`)
+    if (tempValue === 21) {
+      await SendChannelBlock(`BLACKJACK! WOOHOO!`)
+    }
     i++
   }
   const dealerCard1 = GetCard()
   const dealerCard2 = GetCard()
   dealerCards.push(dealerCard1)
   dealerCards.push(dealerCard2)
-  await SendChannelBlock(`Dealer show : ${dealerCard1.face} \ud83c\udca0`)
+  await SendChannelBlock(`Dealer shows : ${dealerCard1.face} \ud83c\udca0`)
+  const dealerTotal = GetCardTotals(dealerCards)
+  if (dealerTotal.total1 === 21 || dealerTotal.total2 === 21) {
+    await SendChannelBlock(`Dealer has BLACKJACK: ${dealerCard1.face} ${dealerCard2.face}`)
+    let j = 0
+    while (j < bets.length) {
+      if (bets[j].tempValue < 21) {
+        await SendChannelBlock(`${bets[j].name} LOSES ${bets[j].amt} dollars.`)
+      } else {
+        await SendChannelBlock(`${bets[j].name} pushes.`)
+      }
+      j++
+    }
+    EndRound()
+  }
 }
 
 function GetCardTotals(cards = []) {
@@ -182,7 +226,7 @@ async function DealerTurn() {
   if (total > 21 && hasAce) {
     total -= 10
   }
-  const text = `Dealer shows: ${cards} total=${total}`
+  const text = `Dealer shows: ${cards} total = ${total}`
   await SendChannelBlock(text)
   let mustHit = false
   if (total < 17) {
@@ -190,12 +234,11 @@ async function DealerTurn() {
   } else if (total === 17 && hasAce) {
     mustHit = true
   }
-  console.log('musthit', mustHit)
   while (mustHit) {
     const newCard = GetCard()
     cards += newCard.face
     total += newCard.value
-    const text = `Dealer shows: ${cards} total=${total}`
+    const text = `Dealer shows: ${cards} total = ${total}`
     await SendChannelBlock(text)
     mustHit = false
     if (total < 17) {
@@ -204,144 +247,227 @@ async function DealerTurn() {
       mustHit = true
     }
   }
+  if (total > 21) {
+    let i = 0
+    await SendChannelBlock(`Dealer BUSTS`)
+    while (i < bets.length) {
+      console.log(bets[i])
+      const amt = bets[i].amt
+      if (bets[i].tempValue <= 21) {
+        const key = bets[i].uid
+        const name = bets[i].name
+        await SendChannelBlock(`${name} WON ${amt} dollars.`)
+        await redisClient.INCRBY(key, amt * 2)
+      } else {
+        redisClient.INCRBY('dealer', amt)
+      }
+      i++
+    }
+  } else {
+    let i = 0
+    while (i < bets.length) {
+      const key = bets[i].uid
+      const amt = bets[i].amt
+      const name = bets[i].name
+      if (bets[i].tempValue <= 21 && total < bets[i].tempValue) {
+
+        // dealer loses by value
+        await SendChannelBlock(`${name} WON ${amt} dollars.`)
+        await redisClient.INCRBY(key, amt * 2)
+        await redisClient.DECRBY('dealer', amt)
+      } else if (bets[i].tempValue === total) {
+        await SendChannelBlock(`${name} pushed`)
+        await redisClient.INCRBY(key, amt)
+      } else {
+        await SendChannelBlock(`${name} LOST ${amt} dollars.`)
+        await redisClient.INCRBY('dealer', amt)
+      }
+      i++
+    }
+  }
+  EndRound()
 }
 
-  async function NextPlayer() {
-    currentPlayerIdx++
-    if (currentPlayerIdx >= bets.length) {
-      currentPlayerIdx = -1 // the dealer
-      await SendChannelBlock("Dealer's turn.")
-      await DealerTurn()
-    }
-  }
+async function EndRound() {
+  inGame = false
+  bets.length = 0
+  dealerCards.length = 0
+  dealt.length = 0
+  await SendChannelBlock(`Betting is OPEN`)
+}
 
-  async function HandleHit() {
-    const newCard = GetCard()
-    bets[currentPlayerIdx].cards.push(newCard)
-    let cards = ''
-    bets[currentPlayerIdx].cards.forEach(card => {
-      cards += card.face + ' '
-    })
-    const total = GetCardTotals(bets[currentPlayerIdx].cards)
-    console.log(total)
-    let totalDisplay = 0
-    let tempValue = 0
-    if (total.total1 === 21 || total.total2 === 21) {
-      tempValue = 21
-    } else if (total.total1 === total.total2) {
-      totalDisplay = total.total1
-      tempValue = total.total1
-    } else if (total.total1 > 21 || total.total2 > 21) {
-      totalDisplay = total.total1 < total.total2 ? total.total1 : total.total2
-      tempValue = totalDisplay
-    } else if (total.total2 < 21 && total.total2 < 21) {
-      totalDisplay = total.total1 + ' or ' + total.total2
-      tempValue = total.total1 > total.total2 ? total.total1 : total.total2
-    }
-    let status = 'OK'
-    bets[currentPlayerIdx].tempValue = tempValue
-    if (tempValue > 21) {
-      status = 'BUST'
-    }
-    await SendChannel(`<@${bets[currentPlayerIdx].uid}> has: ${cards} = ${totalDisplay} ${status}`)
-    if (tempValue >= 21) {
+async function NextPlayer() {
+  currentPlayerIdx++
+  if (currentPlayerIdx >= bets.length) {
+    currentPlayerIdx = -1 // the dealer
+    await SendChannelBlock("Dealer's turn.")
+    await DealerTurn()
+  } else {
+    if (bets[currentPlayerIdx].tempValue === 21) {
       NextPlayer()
+    } else {
+      const name = bets[currentPlayerIdx].name
+      const total = GetCardTotals(bets[currentPlayerIdx].cards)
+      let cards = ''
+      bets[currentPlayerIdx].cards.forEach(card => {
+        cards += card.face + ' '
+      })
+      if (total.total1 === 21 || total.total2 === 21) {
+        await SendChannelBlock(`${name} has BLACKJACK!`)
+        bets[currentPlayerIdx].tempValue = 21
+        NextPlayer()
+      } else if (total.total1 === total.total2) {
+        let status = `"hit" or "stay"`
+        if (bets[currentPlayerIdx].cards.length === 2) {
+          status += ` "double"`
+        }
+        await SendChannelBlock(`${name}'s turn ${cards} = ${total.total1}, ${status}`)
+      } else {
+        let status = `"hit" or "stay"`
+        if (bets[currentPlayerIdx].cards.length === 2) {
+          status += ` "double"`
+        }
+        await SendChannelBlock(`${name}'s turn: ${total.total1} or ${total.total2}, ${status}`)
+      }
     }
   }
+}
 
-  async function HandleStay() {
+async function HandleHit(_double = false) {
+  const newCard = GetCard()
+  bets[currentPlayerIdx].cards.push(newCard)
+  let cards = ''
+  bets[currentPlayerIdx].cards.forEach(card => {
+    cards += card.face + ' '
+  })
+  const {tempValue, totalDisplay} = SetValues(currentPlayerIdx)
+  if (_double) {
+    await SendChannelBlock(`${bets[currentPlayerIdx].name} DOUBLES`)
+  }
+  let status = ''
+  if (!_double) {
+    status = '"hit" or "stay"'
+  }
+  if (tempValue > 21) {
+    status = 'BUST'
+  }
+  await SendChannelBlock(`${bets[currentPlayerIdx].name} has: ${cards} = ${totalDisplay} ${status}`)
+  if (tempValue >= 21 || _double) {
     NextPlayer()
   }
+}
+
+async function HandleStay() {
+  NextPlayer()
+}
 
 async function Play() {
   await DealNew()
   inGame = true
-  currentPlayerIdx = 0
-  const total = GetCardTotals(bets[currentPlayerIdx].cards)
-  console.log(total)
-  if (total.total1 === total.total2) {
-    await SendChannel(`<@${bets[currentPlayerIdx].uid}>'s turn: ${total.total1}`)
-  } else if (total.total1 > 21) {
-    await SendChannel(`<@${bets[currentPlayerIdx].uid}>'s turn: ${total.total2}`)
-  } else if (total.total2 > 21) {
-    await SendChannel(`<@${bets[currentPlayerIdx].uid}>'s turn: ${total.total1}`)
-  } else {
-    await SendChannel(`<@${bets[currentPlayerIdx].uid}>'s turn: ${total.total1} or ${total.total2}`)
-  }
+  currentPlayerIdx = -1
+  NextPlayer()
 }
 
 async function tick() {
   timeRemaining--
   if (timeRemaining > 0) {
-    await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: 'C054X464D4J', text: "Bets closes in " + timeRemaining + " seconds"}) 
+    const text = `Bets close in ${timeRemaining} seconds.`
+    await SendChannelBlock(text)
     setTimeout(tick, 1000)
   } else {
     countdown = false
-    await app.client.chat.postMessage({token: process.env.SLACK_OAUTH_TOKEN, channel: 'C054X464D4J', text: "Bets closed"})
+    await SendChannelBlock("Bets closed.  Good luck!")
     await Play()
   }
 }
 
 app.message('bet', async({message, say}) => {
-  if (!inGame) {
-    console.log(message)
-    const msg = message.text
-    const parts = msg.split(' ')
-    if (parts[0].toLowerCase() === 'bet') {
-      try {
-        const amt = parseInt(parts[1])
-        const balance = await redisClient.GET(message.user)
-        if (balance > amt) {
-          if (bets.length < 7) {
-            const new_amount = await redisClient.DECRBY(message.user, amt)
-            bets.push({uid: message.user, amt: amt})
-            await say(`<@${message.user}> placed a ${amt} dollar bet`)
-            timeRemaining = maxTimeRemaining
-            if (!countdown) {
-              countdown = true
-              timer = setTimeout(tick, 1000)
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    if (!inGame) {
+      console.log(message)
+      const user = await GetUser(message.user)
+      const msg = message.text
+      const parts = msg.split(' ')
+      if (parts[0].toLowerCase() === 'bet') {
+        try {
+          const amt = parseInt(parts[1])
+          const balance = await redisClient.GET(message.user)
+          if (balance > amt) {
+            if (bets.length <= maxPlayers) {
+              const new_amount = await redisClient.DECRBY(message.user, amt)
+              bets.push({uid: message.user, amt: amt, name: user.profile.display_name})
+              await SendChannelBlock(`${user.profile.display_name} placed a ${amt} dollar bet`)
+              timeRemaining = maxTimeRemaining
+              if (!countdown) {
+                countdown = true
+                timer = setTimeout(tick, 1000)
+              }
+            } else {
+              await say("too many bets <@" + message.user + ">")
             }
           } else {
-            await say("too many bets <@" + message.user + ">")
+            await say('<@${message.user}> Sorry, insufficent funds')
           }
+        } catch (e) {
+          console.log(e)
         }
-      } catch (e) {
-        console.log(e)
       }
+    } else {
+      await say(`<@${message.user}> bets are closed.`)
     }
-  } else {
-    console.log('in play')
   }
 })
 
 app.message('hit', async({message, say}) => {
-  const uid = message.user
-  console.log(uid)
-  if (currentPlayerIdx >= 0) {
-    console.log(bets[currentPlayerIdx].uid)
-    if (bets[currentPlayerIdx].uid === uid) {
-      HandleHit()
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    const uid = message.user
+    console.log(message)
+    if (currentPlayerIdx >= 0) {
+      if (bets[currentPlayerIdx].uid === uid) {
+        HandleHit()
+      }
+    }
+  }
+})
+
+app.message('double', async ({message, say}) => {
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    const uid = message.user
+    if (currentPlayerIdx >= 0) {
+      if (bets[currentPlayerIdx].uid === uid) {
+        const key = uid
+        const balance = await redisClient.get(key)
+        if (balance >= bets[currentPlayerIdx].amt) {
+          bets[currentPlayerIdx].amt = bets[currentPlayerIdx].amt * 2
+          const _double = true
+          HandleHit(_double)
+        } else {
+          await say('<@${message.user}> Sorry, insufficent funds')
+        }
+      }
     }
   }
 })
 
 app.message('stay', async({message, say}) => {
-  const uid = message.user
-  console.log(uid)
-  if (currentPlayerIdx >= 0) {
-    console.log(bets[currentPlayerIdx].uid)
-    if (bets[currentPlayerIdx].uid === uid) {
-      HandleStay()
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    const uid = message.user
+    if (currentPlayerIdx >= 0) {
+      if (bets[currentPlayerIdx].uid === uid) {
+        HandleStay()
+      }
     }
   }
 })
 
 app.message('gimme', async ({message, say}) => {
-  console.log(message)
-  const amount = 1000
-  const key = message.user
-  await redisClient.INCRBY(key, amount)
-  await say("ok, here are " + amount + " DJT's for you <@" + message.user + ">")
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    console.log(message)
+    const amount = 1000
+    const key = message.user
+    await redisClient.INCRBY(key, amount)
+    await say("ok, here are " + amount + " DJT's for you <@" + message.user + ">")
+  }
 })
 
 app.command('/quiet', async ({command, ack, respond, say}) => {
@@ -354,20 +480,21 @@ app.command('/quiet', async ({command, ack, respond, say}) => {
 
 app.command('/talk', async ({command, ack, respond, say}) => {
   await ack()
-  await say("I'm back!")
+  await respond("I'm back!")
   quiet = false
 })
 
 app.command('/balance', async ({command, ack, respond, say}) => {
   await ack()
-  console.log(command)
-  const userId = command.user_id
-  const key = userId
-  const userBalance = await redisClient.get(key)
-  if (userBalance) {
-    await respond('balance: ' + userBalance)
-  } else {
-    await respond('balance: 0')
+  if (typeof command.channel_id !== 'undefined' && command.channel_id === reservedChannel) {
+    const userId = command.user_id
+    const key = userId
+    const userBalance = await redisClient.get(key)
+    if (userBalance) {
+      await respond('balance: ' + userBalance)
+    } else {
+      await respond('balance: 0')
+    }
   }
 })
 
