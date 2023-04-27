@@ -256,8 +256,7 @@ async function DealerTurn() {
     await SendChannelBlock(`Dealer BUSTS`)
     while (i < bets.length) {
       const amt = bets[i].amt
-      console.log(bets[i].cards.length, bets[i].tempValue)
-      if (!bets[i].cards.length === 2 || !bets[i].tempValue === 21) {
+      if (!(bets[i].cards.length === 2) || !(bets[i].tempValue === 21)) {
         if (bets[i].tempValue <= 21) {
           const key = bets[i].uid
           const name = bets[i].name
