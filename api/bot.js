@@ -268,9 +268,6 @@ async function DealerTurn() {
           await SendChannelBlock(`${name} WON ${amt} dollars.`)
           await redisClient.INCRBY(key, amt * 2)
         }
-      } else {
-        const amt = bets[i].amt
-        redisClient.INCRBY('dealer', amt)
       }
       i++
     }
@@ -371,8 +368,13 @@ async function HandleHit(_double = false) {
   }
   if (tempValue > 21) {
     status = 'BUST'
+    const amt = bets[currentPlayerIdx].amt
+    await redisClient.INCRBY('dealer', amt)
   }
   await SendChannelBlock(`${bets[currentPlayerIdx].name} has: ${cards} = ${totalDisplay} ${status}`)
+  if (tempValue > 21) {
+    await SendChannelBlock(`${bets[currentPlayerIdx].name} LOST ${bets[currentPlayerIdx].amt}.`)
+  }
   if (tempValue >= 21 || _double) {
     NextPlayer()
   }
