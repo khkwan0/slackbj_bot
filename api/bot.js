@@ -495,8 +495,6 @@ app.message('gimme', async ({message, say}) => {
 })
 
 app.command('/quiet', async ({command, ack, respond, say}) => {
-  console.log(command)
-
   await ack()
   await respond('ok')
   quiet = true
@@ -522,11 +520,13 @@ app.command('/balance', async ({command, ack, respond, say}) => {
   }
 })
 
-
-app.action('datepicker_remind', async ({action, ack, respond}) => {
-  await ack()
-  await respond('ok')
-  console.log(action)
+app.message(async ({message, say}) => {
+  const text = message.text.trim()
+  if (/^\<mailto:/.test(text)) {
+    const _email = text.split('|')[1]
+    const email = _email.substr(0, _email.length - 1)
+    await say('Email address detected: ' + email)
+  }
 })
 
 ;(async () => {
