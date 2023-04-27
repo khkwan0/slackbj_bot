@@ -175,19 +175,23 @@ async function DealNew() {
   dealerCards.push(dealerCard2)
   await SendChannelBlock(`Dealer shows : ${dealerCard1.face} \ud83c\udca0`)
   const dealerTotal = GetCardTotals(dealerCards)
+  dealerTotal.total1 = 21
+  let endRound = false
   if (dealerTotal.total1 === 21 || dealerTotal.total2 === 21) {
     await SendChannelBlock(`Dealer has BLACKJACK: ${dealerCard1.face} ${dealerCard2.face}`)
+    endRound = true
     let j = 0
     while (j < bets.length) {
       if (bets[j].tempValue < 21) {
         await SendChannelBlock(`${bets[j].name} LOSES ${bets[j].amt} dollars.`)
+        await redisClient.INCRBY('dealer', bets[j].amt)
       } else {
         await SendChannelBlock(`${bets[j].name} pushes.`)
       }
       j++
     }
-    EndRound()
   }
+  return endRound
 }
 
 function GetCardTotals(cards = []) {
@@ -370,10 +374,14 @@ async function HandleStay() {
 }
 
 async function Play() {
-  await DealNew()
-  inGame = true
-  currentPlayerIdx = -1
-  NextPlayer()
+  const endRound = await DealNew()
+  if (endRound) {
+    EndRound()
+  } else {
+    inGame = true
+    currentPlayerIdx = -1
+    NextPlayer()
+  }
 }
 
 async function tick() {
