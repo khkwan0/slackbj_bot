@@ -166,7 +166,11 @@ async function DealNew() {
     const {tempValue, totalDisplay} = SetValues(i)
     await SendChannelBlock(`${bets[i].name} got dealt: ${card1.face} ${card2.face}`)
     if (tempValue === 21) {
-      await SendChannelBlock(`BLACKJACK! WOOHOO!`)
+      const key = bets[i].uid
+      const winnings = bets[i].amt * 2
+      await redisClient.INCRBY(key, winnings)
+      await redisClient.DECRBY('dealer', winnings)
+      await SendChannelBlock(`BLACKJACK! WOOHOO! ${bets[i].name} won ${winnings}.`)
     }
     i++
   }
@@ -251,15 +255,16 @@ async function DealerTurn() {
     let i = 0
     await SendChannelBlock(`Dealer BUSTS`)
     while (i < bets.length) {
-      console.log(bets[i])
       const amt = bets[i].amt
-      if (bets[i].tempValue <= 21) {
-        const key = bets[i].uid
-        const name = bets[i].name
-        await SendChannelBlock(`${name} WON ${amt} dollars.`)
-        await redisClient.INCRBY(key, amt * 2)
-      } else {
-        redisClient.INCRBY('dealer', amt)
+      if (!bets[i].cards.length === 2 || !bets[i].tempValue === 21) {
+        if (bets[i].tempValue <= 21) {
+          const key = bets[i].uid
+          const name = bets[i].name
+          await SendChannelBlock(`${name} WON ${amt} dollars.`)
+          await redisClient.INCRBY(key, amt * 2)
+        } else {
+          redisClient.INCRBY('dealer', amt)
+        }
       }
       i++
     }
@@ -304,6 +309,7 @@ async function NextPlayer() {
     await DealerTurn()
   } else {
     if (bets[currentPlayerIdx].tempValue === 21) {
+      // player has blackjack on the deal already...next...
       NextPlayer()
     } else {
       const name = bets[currentPlayerIdx].name
