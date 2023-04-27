@@ -1,5 +1,7 @@
 const {App} = require('@slack/bolt')
 const {createClient} = require('redis')
+const lookup = require('./lookup_email')
+const fs = require('fs')
 
 const redisClient = createClient({url: process.env.REDIS_HOST})
 ;(async () => {
@@ -522,10 +524,28 @@ app.command('/balance', async ({command, ack, respond, say}) => {
 
 app.message(async ({message, say}) => {
   const text = message.text.trim()
+  const channel = message.channel
   if (/^\<mailto:/.test(text)) {
     const _email = text.split('|')[1]
     const email = _email.substr(0, _email.length - 1)
-    await say('Email address detected: ' + email)
+    await SendChannelBlock('Email address detected: ' + email, channel)
+    try {
+      const id = await lookup.GetIdByEmail(email)
+      await SendChannelBlock(`V1 id = ${id} for ${email}`, channel)
+      await SendChannelBlock(`Processing...`, channel)
+      const {zipFile, filename} = await lookup.GenerateReport(id)
+      const fileInfo = {
+        token: process.env.SLACK_OAUTH_TOKEN,
+        file: zipFile,
+        filename: filename,
+        intitial_commet: filename,
+        channel_id: channel
+      }
+      await app.client.files.uploadV2(fileInfo)
+    } catch (e) {
+      console.log(e)
+      await SendChannelBlock(e)
+    }
   }
 })
 

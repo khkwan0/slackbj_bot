@@ -1,2 +1,8 @@
+.env
+.vimrc
 env
+*.zip
+single/
+test*
+package.json.bot
 node_modules/
