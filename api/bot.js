@@ -453,6 +453,7 @@ app.message('double', async ({message, say}) => {
         const key = uid
         const balance = await redisClient.get(key)
         if (balance >= bets[currentPlayerIdx].amt) {
+          await redisClient.DECRBY(key, bets[currentPlayerIdx].amt)
           bets[currentPlayerIdx].amt = bets[currentPlayerIdx].amt * 2
           const _double = true
           HandleHit(_double)
