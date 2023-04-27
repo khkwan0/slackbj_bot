@@ -428,17 +428,17 @@ app.message('bet', async({message, say}) => {
                 timer = setTimeout(tick, 1000)
               }
             } else {
-              await say("too many bets " + message.user + ".")
+              await say("Too many bets.  Please wait.")
             }
           } else {
-            await say('${message.user} Sorry, insufficent funds')
+            await say('${user.profile.display_name} Sorry, insufficent funds')
           }
         } catch (e) {
           console.log(e)
         }
       }
     } else {
-      await say(`${message.user} bets are closed.`)
+      await say(`Bets are closed.`)
     }
   }
 })
@@ -468,7 +468,7 @@ app.message('double', async ({message, say}) => {
           const _double = true
           HandleHit(_double)
         } else {
-          await say('<@${message.user}> Sorry, insufficent funds')
+          await say(`${message.user} Sorry, insufficent funds`)
         }
       }
     }
@@ -488,11 +488,11 @@ app.message('stay', async({message, say}) => {
 
 app.message('gimme', async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
-    console.log(message)
+    const user = await GetUser(message.user)
     const amount = 1000
     const key = message.user
     await redisClient.INCRBY(key, amount)
-    await say("ok, here are " + amount + " DJT's for you <@" + message.user + ">")
+    await say("ok, here are " + amount + " dollars for you " + user.profile.display_name + ".")
   }
 })
 
