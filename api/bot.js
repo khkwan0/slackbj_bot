@@ -175,7 +175,6 @@ async function DealNew() {
   dealerCards.push(dealerCard2)
   await SendChannelBlock(`Dealer shows : ${dealerCard1.face} \ud83c\udca0`)
   const dealerTotal = GetCardTotals(dealerCards)
-  dealerTotal.total1 = 21
   let endRound = false
   if (dealerTotal.total1 === 21 || dealerTotal.total2 === 21) {
     await SendChannelBlock(`Dealer has BLACKJACK: ${dealerCard1.face} ${dealerCard2.face}`)
