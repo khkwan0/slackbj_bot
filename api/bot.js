@@ -281,9 +281,18 @@ async function DealerTurn() {
       if (bets[i].tempValue <= 21 && total < bets[i].tempValue) {
 
         // dealer loses by value
-        await SendChannelBlock(`${name} WON ${amt} dollars.`)
-        await redisClient.INCRBY(key, amt * 2)
-        await redisClient.DECRBY('dealer', amt)
+        if (bets[i]tempValuje === 21 && bets[i].cards.length === 2) {
+          // payout blackjack 
+          const winnings = amt * 3
+          await SendChannelBlock(`${name} got BLACKJACK and WON ${winnings} dollars.`)
+          await redisClient.INCRBY(key, winnings)
+          await redisClient.DECRBY('dealer', winnings)
+        } else {
+          // payout normal
+          await SendChannelBlock(`${name} WON ${amt} dollars.`)
+          await redisClient.INCRBY(key, amt * 2)
+          await redisClient.DECRBY('dealer', amt)
+        }
       } else if (bets[i].tempValue === total) {
         await SendChannelBlock(`${name} pushed`)
         await redisClient.INCRBY(key, amt)
