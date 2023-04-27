@@ -431,7 +431,7 @@ app.message('bet', async({message, say}) => {
               await say("Too many bets.  Please wait.")
             }
           } else {
-            await say('${user.profile.display_name} Sorry, insufficent funds')
+            await say(`${user.profile.display_name} Sorry, insufficent funds`)
           }
         } catch (e) {
           console.log(e)
