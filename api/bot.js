@@ -103,7 +103,6 @@ function GetCard() {
 
   rawCard = GetRawCard()
   while (dealt.includes(rawCard)) {
-    console.log('redraw')
     rawCard = GetRawCard()
   }
   dealt.push(rawCard)
@@ -125,7 +124,7 @@ function GetCard() {
     face = 'A'
     value = 11
   }
-  const suit = GetSuit(cardNumber)
+  const suit = GetSuit(rawCard)
   face += suit
   return {face, value}
 }
