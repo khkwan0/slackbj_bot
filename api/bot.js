@@ -52,14 +52,20 @@ const bets = []
 const dealt = []
 const dealerCards = []
 let timer = null
-const maxTimeRemaining = 2
-let timeRemaining = maxTimeRemaining
 let countdown = false
 let inGame = false
-const numDecks = 1
-const maxPlayers = 7
 const reservedChannel='C054X464D4J'
 let currentPlayerIdx = -1
+const rules = {
+  maxPlayers: 7,
+  maxTimeRemaining: 2,
+  numDecks: 1,
+  dealerStop: 17,
+  minBet: 10,
+  maxBet: 1000,
+  reshuffleFactor: 5, // if there are 8 players (including dealer), then reshuffle if there is less than 8 * reshuffleFactor cards left
+}
+let timeRemaining = rules.maxTimeRemaining
 
 async function GetUser(id) {
   return await app.client.users.profile.get({token: process.env.SLACK_USER_TOKEN, user: id})
@@ -132,7 +138,7 @@ function GetCard() {
 }
 
 function GetRawCard() {
-  return Math.floor(Math.random() * 52 * numDecks)
+  return Math.floor(Math.random() * 52 * rules.numDecks)
 }
 
 function SetValues(playerIdx) {
@@ -219,6 +225,7 @@ async function DealerTurn() {
   let cards = ''
   let hasAce = false
   let total = 0
+  const DEALER_STOP = rules.dealerStop
   dealerCards.forEach(card => {
     if (card.value === 11) {
       hasAce = true
@@ -232,9 +239,9 @@ async function DealerTurn() {
   const text = `Dealer shows: ${cards} total = ${total}`
   await SendChannelBlock(text)
   let mustHit = false
-  if (total < 17) {
+  if (total < DEALER_STOP) {
     mustHit = true 
-  } else if (total === 17 && hasAce) {
+  } else if (total === DEALER_STOP && hasAce) {
     mustHit = true
   }
   while (mustHit) {
@@ -244,9 +251,9 @@ async function DealerTurn() {
     const text = `Dealer shows: ${cards} total = ${total}`
     await SendChannelBlock(text)
     mustHit = false
-    if (total < 17) {
+    if (total < DEALER_STOP) {
       mustHit = true 
-    } else if (total === 17 && hasAce) {
+    } else if (total === DEALER_STOP && hasAce) {
       mustHit = true
     }
   }
@@ -257,6 +264,7 @@ async function DealerTurn() {
       if (bets[i].tempValue <= 21) {
         if ((bets[i].cards.length === 2) && (bets[i].tempValue === 21)) {
           const key = bets[i].uid
+          const name = bets[i].name
           const winnings = bets[i].amt * 2 + bets[i].amt
           await SendChannelBlock(`${name} got BLACKJACK and WON ${winnings} dollars.`)
           await redisClient.INCRBY(key, winnings)
@@ -309,7 +317,6 @@ async function EndRound() {
   inGame = false
   bets.length = 0
   dealerCards.length = 0
-  dealt.length = 0
   await SendChannelBlock(`Betting is OPEN`)
 }
 
@@ -385,8 +392,16 @@ async function HandleStay() {
 }
 
 async function Play() {
+  // check if we need to reshuffle
+  const cardsLeft = rules.numDecks * 52 - dealt.length
+  const minimumCards = (bets.length + 1) * rules.reshuffleFactor
+  if (cardsLeft < minimumCards) {
+    dealt.length = 0
+    await SendChannelBlock('RESHUFFLE')
+  }
   const endRound = await DealNew()
   if (endRound) {
+    // dealer hit blackjack on the deal
     EndRound()
   } else {
     inGame = true
@@ -418,22 +433,26 @@ app.message('bet', async({message, say}) => {
       if (parts[0].toLowerCase() === 'bet') {
         try {
           const amt = parseInt(parts[1])
-          const balance = await redisClient.GET(message.user)
-          if (balance > amt) {
-            if (bets.length <= maxPlayers) {
-              const new_amount = await redisClient.DECRBY(message.user, amt)
-              bets.push({uid: message.user, amt: amt, name: user.profile.display_name})
-              await SendChannelBlock(`${user.profile.display_name} placed a ${amt} dollar bet`)
-              timeRemaining = maxTimeRemaining
-              if (!countdown) {
-                countdown = true
-                timer = setTimeout(tick, 1000)
+          if (amt >= rules.minBet && amt <= rules.maxBet) {
+            const balance = await redisClient.GET(message.user)
+            if (balance > amt) {
+              if (bets.length <= rules.maxPlayers) {
+                const new_amount = await redisClient.DECRBY(message.user, amt)
+                bets.push({uid: message.user, amt: amt, name: user.profile.display_name})
+                await SendChannelBlock(`${user.profile.display_name} placed a ${amt} dollar bet`)
+                timeRemaining = rules.maxTimeRemaining
+                if (!countdown) {
+                  countdown = true
+                  timer = setTimeout(tick, 1000)
+                }
+              } else {
+                await say("Too many bets.  Please wait.")
               }
             } else {
-              await say("Too many bets.  Please wait.")
+              await say(`${user.profile.display_name} Sorry, insufficent funds`)
             }
           } else {
-            await say(`${user.profile.display_name} Sorry, insufficent funds`)
+            await say(`${user.profile.display_name}.  Min bet is ${rules.minBet} and Max bet is ${rules.maxBet}`)
           }
         } catch (e) {
           console.log(e)
@@ -499,7 +518,7 @@ app.message('gimme', async ({message, say}) => {
       await redisClient.INCRBY(key, amount)
       const timeout = 24 * 3600 * 2
       const toStore = {timestamp: Date.now(), timeout: timeout}
-      await redisClient.SET(timerKey, JSON.stringify(toStore),  timeout)
+      await redisClient.SET(timerKey, JSON.stringify(toStore), {EX: timeout})
       await say("ok, here are " + amount + " dollars for you " + user.profile.display_name + ".")
     } else {
       const timerData = JSON.parse(res)
