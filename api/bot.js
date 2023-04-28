@@ -63,6 +63,8 @@ const rules = {
   dealerStop: 17,
   minBet: 10,
   maxBet: 1000,
+  noHitOnSplitAces: true,
+  alwaysReshuffle: false , // reshuffle after each round if true
   reshuffleFactor: 5, // if there are 8 players (including dealer), then reshuffle if there is less than 8 * reshuffleFactor cards left
 }
 let timeRemaining = rules.maxTimeRemaining
@@ -105,13 +107,16 @@ function GetSuit(cardNumber) {
   return suit
 }
 
-function GetCard() {
+function GetCard(forceRaw = -1) {
   let face = ''
   let value = 0
 
   rawCard = GetRawCard()
   while (dealt.includes(rawCard)) {
     rawCard = GetRawCard()
+  }
+  if (forceRaw > -1) {
+    rawCard = forceRaw
   }
   dealt.push(rawCard)
   const cardNumber = rawCard % 52 % 13
@@ -133,8 +138,8 @@ function GetCard() {
     value = 11
   }
   const suit = GetSuit(rawCard)
-  face += suit
-  return {face, value}
+  card = face + suit
+  return {face, value, card}
 }
 
 function GetRawCard() {
@@ -170,21 +175,21 @@ async function DealNew() {
     bets[i].cards = [card1, card2]
     const total = GetCardTotals(bets[i].cards)
     const {tempValue, totalDisplay} = SetValues(i)
-    await SendChannelBlock(`${bets[i].name} got dealt: ${card1.face} ${card2.face}`)
+    await SendChannelBlock(`${bets[i].name} got dealt: ${card1.card} ${card2.card}`)
     if (tempValue === 21) {
       await SendChannelBlock(`BLACKJACK! WOOHOO!`)
     }
     i++
   }
-  const dealerCard1 = GetCard()
-  const dealerCard2 = GetCard()
+  const dealerCard1 = GetCard(1)
+  const dealerCard2 = GetCard(3)
   dealerCards.push(dealerCard1)
   dealerCards.push(dealerCard2)
-  await SendChannelBlock(`Dealer shows : ${dealerCard1.face} \ud83c\udca0`)
+  await SendChannelBlock(`Dealer shows : ${dealerCard1.card} \ud83c\udca0`)
   const dealerTotal = GetCardTotals(dealerCards)
   let endRound = false
   if (dealerTotal.total1 === 21 || dealerTotal.total2 === 21) {
-    await SendChannelBlock(`Dealer has BLACKJACK: ${dealerCard1.face} ${dealerCard2.face}`)
+    await SendChannelBlock(`Dealer has BLACKJACK: ${dealerCard1.card} ${dealerCard2.card}`)
     endRound = true
     let j = 0
     while (j < bets.length) {
@@ -230,7 +235,7 @@ async function DealerTurn() {
     if (card.value === 11) {
       hasAce = true
     }
-    cards += card.face + ' '
+    cards += card.card + ' '
     total += card.value
   })
   if (total > 21 && hasAce) {
@@ -246,7 +251,7 @@ async function DealerTurn() {
   }
   while (mustHit) {
     const newCard = GetCard()
-    cards += newCard.face
+    cards += newCard.card
     total += newCard.value
     const text = `Dealer shows: ${cards} total = ${total}`
     await SendChannelBlock(text)
@@ -317,6 +322,9 @@ async function EndRound() {
   inGame = false
   bets.length = 0
   dealerCards.length = 0
+  if (rules.alwaysReshuffle) {
+    dealt.length = 0
+  }
   await SendChannelBlock(`Betting is OPEN`)
 }
 
@@ -329,30 +337,66 @@ async function NextPlayer() {
   } else {
     if (bets[currentPlayerIdx].tempValue === 21) {
       // player has blackjack on the deal already...next...
+      // the announcement of blackjack was done on the DealNew()
+      //
+      // however if a player split and got blackjack, we ought to announce
+      // it here..
+      //
+      if (typeof bets[currentPlayerIdx].split !== 'undefined') {
+        const name = bets[currentPlayerIdx].name
+        let cards = ''
+        bets[currentPlayerIdx].cards.forEach(card => {
+          cards += card.card + ' '
+        })
+        await SendChannelBlock(`${name} got dealt ${cards}.  BLACKJACK!  WOOHOO!`)
+      }
       NextPlayer()
     } else {
       const name = bets[currentPlayerIdx].name
       const total = GetCardTotals(bets[currentPlayerIdx].cards)
       let cards = ''
       bets[currentPlayerIdx].cards.forEach(card => {
-        cards += card.face + ' '
+        cards += card.card + ' '
       })
+      /*
       if (total.total1 === 21 || total.total2 === 21) {
         await SendChannelBlock(`${name} has BLACKJACK!`)
         bets[currentPlayerIdx].tempValue = 21
         NextPlayer()
-      } else if (total.total1 === total.total2) {
-        let status = `"hit" or "stay"`
+      } else*/
+      if (total.total1 === total.total2) {
+        let status = `"hit" "stay"`
         if (bets[currentPlayerIdx].cards.length === 2) {
           status += ` "double"`
+        }
+        if (bets[currentPlayerIdx].cards[0].face === bets[currentPlayerIdx].cards[1].face) {
+          status += ` "split"`
         }
         await SendChannelBlock(`${name}'s turn ${cards} = ${total.total1}, ${status}`)
       } else {
-        let status = `"hit" or "stay"`
-        if (bets[currentPlayerIdx].cards.length === 2) {
-          status += ` "double"`
+        let status = `"hit" "stay"`
+        let autoStay = false
+        // check if it was a split and split from Aces
+        // if so check the rule if we can hit on split aces...
+        if (typeof bets[currentPlayerIdx].split !== 'undefined' && bets[currentPlayerIdx].cards[0].face === 'A') {
+          if (rules.noHitOnSplitAces) {
+            status = ''
+            autoStay = true
+          }
+        } else {
+          if (bets[currentPlayerIdx].cards.length === 2) {
+            status += ` "double"`
+          }
+          if (bets[currentPlayerIdx].cards[0].face === bets[currentPlayerIdx].cards[1].face) {
+            status += ` "split"`
+          }
         }
-        await SendChannelBlock(`${name}'s turn: ${total.total1} or ${total.total2}, ${status}`)
+        if (autoStay) {
+          await SendChannelBlock(`${name} got ${cards} = ${total.total1} (Cannot hit on split Aces)`)
+          NextPlayer()
+        } else {
+          await SendChannelBlock(`${name}'s turn: ${cards} = ${total.total1} or ${total.total2}, ${status}`)
+        }
       }
     }
   }
@@ -363,7 +407,7 @@ async function HandleHit(_double = false) {
   bets[currentPlayerIdx].cards.push(newCard)
   let cards = ''
   bets[currentPlayerIdx].cards.forEach(card => {
-    cards += card.face + ' '
+    cards += card.card+ ' '
   })
   const {tempValue, totalDisplay} = SetValues(currentPlayerIdx)
   if (_double) {
@@ -479,6 +523,7 @@ app.message('hit', async({message, say}) => {
 app.message('double', async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const uid = message.user
+    const user = await GetUser(uid)
     if (currentPlayerIdx >= 0) {
       if (bets[currentPlayerIdx].uid === uid) {
         const key = uid
@@ -489,7 +534,46 @@ app.message('double', async ({message, say}) => {
           const _double = true
           HandleHit(_double)
         } else {
-          await say(`${message.user} Sorry, insufficent funds`)
+          await say(`${user.profile.display_name} Sorry, insufficent funds`)
+        }
+      }
+    }
+  }
+})
+
+app.message('split', async ({message, say}) => {
+  if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
+    const uid = message.user
+    const user = await GetUser(uid)
+    if (currentPlayerIdx >= 0) {
+      if (bets[currentPlayerIdx].uid === uid) {
+        const key = uid
+        const balance = await redisClient.get(key)
+        if (balance >= bets[currentPlayerIdx].amt) {
+          if (bets[currentPlayerIdx].cards[0].face === bets[currentPlayerIdx].cards[1].face) {
+            await redisClient.DECRBY(key, bets[currentPlayerIdx].amt)
+            await SendChannelBlock(`${user.profile.display_name} SPLITS ${bets[currentPlayerIdx].cards[0].face}'s`)
+
+            const newCard1 = await GetCard()
+            const newCard2 = await GetCard()
+            const newHand = {
+              split: 2,
+              uid: uid,
+              name: bets[currentPlayerIdx].name,
+              amt: bets[currentPlayerIdx].amt,
+              cards: [{...bets[currentPlayerIdx].cards[1]}, newCard2],
+              tempValue: bets[currentPlayerIdx].cards[1].value + newCard2.value
+            }
+
+            bets[currentPlayerIdx].cards[1] = newCard1
+            bets[currentPlayerIdx].tempValue = bets[currentPlayerIdx].cards[0].value + newCard1.value
+            bets[currentPlayerIdx].split = 1
+            bets.splice(currentPlayerIdx, 1, bets[currentPlayerIdx], newHand)
+            currentPlayerIdx--
+            NextPlayer()
+          }
+        } else {
+          await say(`${user.profile.display_name} Sorry, insufficent funds`)
         }
       }
     }
