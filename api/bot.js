@@ -491,10 +491,23 @@ app.message('stay', async({message, say}) => {
 app.message('gimme', async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const user = await GetUser(message.user)
-    const amount = 1000
     const key = message.user
-    await redisClient.INCRBY(key, amount)
-    await say("ok, here are " + amount + " dollars for you " + user.profile.display_name + ".")
+    const timerKey = `timeout_${key}`
+    const res = await redisClient.GET(timerKey)
+    if (!res) {
+      const amount = 1000
+      await redisClient.INCRBY(key, amount)
+      const timeout = 24 * 3600 * 2
+      const toStore = {timestamp: Date.now(), timeout: timeout}
+      await redisClient.SET(timerKey, JSON.stringify(toStore),  timeout)
+      await say("ok, here are " + amount + " dollars for you " + user.profile.display_name + ".")
+    } else {
+      const timerData = JSON.parse(res)
+      console.log(timerData)
+      const timeLeftHours = (timerData.timeout - (Date.now() - timerData.timestamp)/1000) / 3600
+      const hours = timerData.timeout / 3600
+      await say(`Sorry ${user.profile.display_name}, you can only get money every ${hours} hours.\nYou have ${timeLeftHours} hours until you can get more money.`)
+    }
   }
 })
 
