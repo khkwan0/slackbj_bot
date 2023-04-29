@@ -61,6 +61,7 @@ const rules = {
   maxTimeRemaining: 2,
   numDecks: 1,
   dealerStop: 17,
+  dealerStopSoft: true,
   minBet: 10,
   maxBet: 1000,
   noHitOnSplitAces: true,
@@ -181,8 +182,8 @@ async function DealNew() {
     }
     i++
   }
-  const dealerCard1 = GetCard(1)
-  const dealerCard2 = GetCard(3)
+  const dealerCard1 = GetCard()
+  const dealerCard2 = GetCard()
   dealerCards.push(dealerCard1)
   dealerCards.push(dealerCard2)
   await SendChannelBlock(`Dealer shows : ${dealerCard1.card} \ud83c\udca0`)
@@ -226,11 +227,11 @@ function GetCardTotals(cards = []) {
   return {total1, total2}
 }
 
-async function DealerTurn() {
+async function DealerAction(dealerCards) {
+  const DEALER_STOP = rules.dealerStop
   let cards = ''
   let hasAce = false
   let total = 0
-  const DEALER_STOP = rules.dealerStop
   dealerCards.forEach(card => {
     if (card.value === 11) {
       hasAce = true
@@ -246,21 +247,22 @@ async function DealerTurn() {
   let mustHit = false
   if (total < DEALER_STOP) {
     mustHit = true 
-  } else if (total === DEALER_STOP && hasAce) {
+  } else if (total === DEALER_STOP && hasAce && rules.dealerStopSoft) {
     mustHit = true
   }
+  return {mustHit, total}
+}
+
+async function DealerTurn() {
+  const res = await DealerAction(dealerCards)
+  let mustHit = res.mustHit
+  let total = res.total
   while (mustHit) {
     const newCard = GetCard()
-    cards += newCard.card
-    total += newCard.value
-    const text = `Dealer shows: ${cards} total = ${total}`
-    await SendChannelBlock(text)
-    mustHit = false
-    if (total < DEALER_STOP) {
-      mustHit = true 
-    } else if (total === DEALER_STOP && hasAce) {
-      mustHit = true
-    }
+    dealerCards.push(newCard)
+    const res = await DealerAction(dealerCards)
+    total = res.total
+    mustHit = res.mustHit
   }
   if (total > 21) {
     let i = 0
