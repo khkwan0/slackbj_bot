@@ -12,6 +12,7 @@ const db = new Pool({
 
 const CreateReport = id => {
   return new Promise((resolve, reject) => {
+    process.chdir('/usr/src/app')
     const command = `/usr/src/app/report_driver.sh ${id} 2022-01-18`
     exec(command, (err, stdout, stderr) => {
       if (err) {
@@ -28,7 +29,7 @@ const CreateReport = id => {
 const CompressReport = (id, fileName) => {
   return new Promise((resolve, reject) => {
     const zipFile = `/tmp/${fileName}`
-    const cwd = `single/${id}/good`
+    const cwd = `/usr/src/app/single/${id}/good`
     process.chdir(cwd)
     const zipCommand = `/usr/bin/7z a ${zipFile} *`
     exec(zipCommand, (err, stdout, stderr) => {
