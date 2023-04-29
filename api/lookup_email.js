@@ -28,7 +28,9 @@ const CreateReport = id => {
 const CompressReport = (id, fileName) => {
   return new Promise((resolve, reject) => {
     const zipFile = `/tmp/${fileName}`
-    const zipCommand = `/usr/bin/7z a ${zipFile} single/${id}/good/*`
+    const cwd = `single/${id}/good`
+    process.chdir(cwd)
+    const zipCommand = `/usr/bin/7z a ${zipFile} *`
     exec(zipCommand, (err, stdout, stderr) => {
       if (err) {
         console.log(err)
