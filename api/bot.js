@@ -258,6 +258,7 @@ async function DealerTurn() {
   let mustHit = res.mustHit
   let total = res.total
   while (mustHit) {
+    await SendChannelBlock('Dealer hits')
     const newCard = GetCard()
     dealerCards.push(newCard)
     const res = await DealerAction(dealerCards)
@@ -469,7 +470,7 @@ async function tick() {
   }
 }
 
-app.message('bet', async({message, say}) => {
+app.message(/bet/i, async({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     if (!inGame) {
       console.log(message)
@@ -510,7 +511,7 @@ app.message('bet', async({message, say}) => {
   }
 })
 
-app.message('hit', async({message, say}) => {
+app.message(/hit/i, async({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const uid = message.user
     console.log(message)
@@ -522,7 +523,7 @@ app.message('hit', async({message, say}) => {
   }
 })
 
-app.message('double', async ({message, say}) => {
+app.message(/double/i, async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const uid = message.user
     const user = await GetUser(uid)
@@ -543,7 +544,7 @@ app.message('double', async ({message, say}) => {
   }
 })
 
-app.message('split', async ({message, say}) => {
+app.message(/split/i, async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const uid = message.user
     const user = await GetUser(uid)
@@ -582,7 +583,7 @@ app.message('split', async ({message, say}) => {
   }
 })
 
-app.message('stay', async({message, say}) => {
+app.message(/stay/i, async({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const uid = message.user
     if (currentPlayerIdx >= 0) {
@@ -593,7 +594,7 @@ app.message('stay', async({message, say}) => {
   }
 })
 
-app.message('gimme', async ({message, say}) => {
+app.message(/gimme/i, async ({message, say}) => {
   if (typeof message.channel !== 'undefined' && message.channel === reservedChannel) {
     const user = await GetUser(message.user)
     const key = message.user
